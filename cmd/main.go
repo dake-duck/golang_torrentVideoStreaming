@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/anacrolix/torrent"
@@ -20,8 +19,6 @@ import (
 var (
 	upgrader      = websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024}
 	torrentClient *torrent.Client
-	torrentMutex  sync.Mutex
-	videoMutex    sync.Mutex
 	videos        map[string]*Video
 )
 
@@ -32,6 +29,7 @@ type Video struct {
 	Status           string
 	DownloadProgress float64 // Download progress (percentage)
 	ProcessingStatus string  // Processing status ("In Progress" or "Done")
+	MagnetLink       string
 }
 
 func init() {
@@ -70,6 +68,20 @@ func loadVideosFromFile() (map[string]*Video, error) {
 	}
 
 	return loadedVideos, nil
+}
+
+func resumeDownloadAndProcess(video *Video) {
+	// Check if the video is in a state that can be resumed
+	if video.Status != "Downloading" && video.ProcessingStatus != "In Progress" {
+		return
+	}
+
+	t, err := torrentClient.AddMagnet(video.MagnetLink)
+	if err != nil {
+		return
+	}
+
+	go downloadAndProcess(t, video)
 }
 
 func initTorrentClient() {
@@ -224,9 +236,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(time.Second * 2)
 
 		// Collect video information
-		videoMutex.Lock()
 		videoData, err := json.Marshal(videos)
-		videoMutex.Unlock()
 
 		if err != nil {
 			log.Printf("Error encoding video data: %v", err)
@@ -248,12 +258,10 @@ func submitHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	torrentMutex.Lock()
 	log.Println(magnetLink)
 	t, err := torrentClient.AddMagnet(magnetLink)
 	<-t.GotInfo()
 	log.Println(t.Name())
-	torrentMutex.Unlock()
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -262,7 +270,7 @@ func submitHandler(w http.ResponseWriter, r *http.Request) {
 
 	videoID := fmt.Sprintf("%x", t.InfoHash())
 	videoName := filepath.Base(t.Name())
-	video := Video{ID: videoID, Name: videoName, Status: "Downloading", DownloadProgress: 0}
+	video := Video{ID: videoID, Name: videoName, Status: "Downloading", DownloadProgress: 0, MagnetLink: magnetLink}
 
 	videos[videoID] = &video
 
@@ -289,10 +297,7 @@ func downloadAndProcess(t *torrent.Torrent, video *Video) {
 		}
 	}()
 
-	// Download torrent
-	torrentMutex.Lock()
 	t.DownloadAll()
-	torrentMutex.Unlock()
 
 	select {
 	case <-t.Complete.On():
@@ -302,7 +307,6 @@ func downloadAndProcess(t *torrent.Torrent, video *Video) {
 		video.Status = "Processing"
 		video.DownloadProgress = 100 // Set download progress to 100% after download is complete
 		video.ProcessingStatus = "In Progress"
-		videoMutex.Lock()
 
 		var inputFile string
 		var outputFile string
@@ -334,7 +338,6 @@ func downloadAndProcess(t *torrent.Torrent, video *Video) {
 			outputFile,
 		)
 		err := cmd.Run()
-		videoMutex.Unlock()
 		if err != nil {
 			log.Printf("Error processing video: %v", err)
 			video.Status = "Error"
@@ -417,6 +420,10 @@ func createDirsIfNotExist(dirPaths []string) error {
 func main() {
 	dirPaths := []string{"tmp", "tmp/hls", "tmp/torrent_data"}
 	createDirsIfNotExist(dirPaths)
+
+	// for _, video := range videos {
+	// 	resumeDownloadAndProcess(video)
+	// }
 
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/ws", wsHandler)
