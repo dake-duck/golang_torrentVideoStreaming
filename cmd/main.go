@@ -182,6 +182,9 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 							var hls = new Hls();
 							hls.loadSource("/stream/" + video.ID + "/output.m3u8");
 							hls.attachMedia(videoPlayer);
+							hls.on(Hls.Events.ERROR, function (event, data) {
+								console.error('HLS.js error:', event, data);
+							});
 						}
 					});
 				}
@@ -233,7 +236,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		// Send video information to WebSocket
 		err = conn.WriteMessage(websocket.TextMessage, videoData)
 		if err != nil {
-			log.Printf("Error sending message to WebSocket: %v", err)
 			break
 		}
 	}
@@ -322,6 +324,7 @@ func downloadAndProcess(t *torrent.Torrent, video *Video) {
 		cmd := exec.Command("ffmpeg",
 			"-i", inputFile,
 			"-c:v", "libx264",
+			"-profile:v", "baseline",
 			"-hls_time", "20",
 			"-hls_playlist_type", "vod",
 			"-hls_segment_type", "mpegts",
