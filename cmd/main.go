@@ -95,141 +95,45 @@ func initTorrentClient() {
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.New("index").Parse(`
-	<!DOCTYPE html>
-		<html>
+	if r.URL.Query().Has("stream_id") {
+		stream_id := r.URL.Query().Get("stream_id")
+		files := []string{
+			"./ui/pages/stream.page.tmpl",
+			"./ui/layouts/base.layout.tmpl",
+		}
+		ts, err := template.ParseFiles(files...)
+		if err != nil {
+			log.Println(err.Error())
+			http.Error(w, "Internal Server Error", 500)
+			return
+		}
 
-		<head>
-			<title>Torrent Streamer</title>
-			<!-- Include hls.js library -->
-			<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-		</head>
+		err = ts.Execute(w, stream_id)
+		if err != nil {
+			log.Println(err.Error())
+			http.Error(w, "Internal Server Error", 500)
+			return
+		}
+	} else {
+		files := []string{
+			"./ui/pages/index.page.tmpl",
+			"./ui/layouts/base.layout.tmpl",
+		}
+		ts, err := template.ParseFiles(files...)
+		if err != nil {
+			log.Println(err.Error())
+			http.Error(w, "Internal Server Error", 500)
+			return
+		}
 
-		<body>
-			<h1>Torrent Streamer</h1>
-			<form action="/submit" method="post">
-				<label for="magnetLink">Magnet Link:</label>
-				<input type="text" id="magnetLink" name="magnetLink" required>
-				<button type="submit">Submit</button>
-			</form>
-
-			<h2>Downloading Videos:</h2>
-			<ul id="downloadingList"></ul>
-
-			<h2>Processing Videos:</h2>
-			<ul id="processingList"></ul>
-
-			<h2>Ready Videos:</h2>
-			<ul id="readyList"></ul>
-
-			<script>
-				var oldData = null;
-				var ws = new WebSocket("ws://" + window.location.host + "/ws");
-				ws.onmessage = function (event) {
-					var data = JSON.parse(event.data);
-					if (oldData === event.data) {
-						return
-					}
-					oldData = event.data;
-					updateStatus(data);
-				};
-
-				function updateStatus(data) {
-					console.log(data);
-
-					if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-						console.error("Invalid data format");
-						return;
-					}
-
-					var downloadingVideos = [];
-					var processingVideos = [];
-					var readyVideos = [];
-
-					for (var key in data) {
-						if (data.hasOwnProperty(key)) {
-							var video = data[key];
-							if (video.Status === "Downloading") {
-								downloadingVideos.push(video);
-							} else if (video.Status === "Processing") {
-								processingVideos.push(video);
-							} else if (video.Status === "Ready") {
-								readyVideos.push(video);
-							}
-						}
-					}
-
-					updateList("downloadingList", downloadingVideos, "Download Progress: ");
-					updateList("processingList", processingVideos, "Processing Status: ");
-					updateList("readyList", readyVideos, "Watch Stream");
-				}
-
-				function updateList(listId, videos, statusPrefix) {
-					var videoList = document.getElementById(listId);
-					if (listId != "readyList") {
-						videoList.innerHTML = "";
-					}
-
-					videos.forEach(function (video) {
-						var listItem = document.getElementById(video.ID);
-						if (listItem) {
-							return
-						}
-						
-						var listItem = document.createElement("li");
-						listItem.innerHTML = video.Name + " - " + getStatusText(video, statusPrefix);
-						videoList.appendChild(listItem);
-
-						if (statusPrefix === "Watch Stream") {
-							// For ready videos, add an hls.js player
-							listItem.setAttribute("id", video.ID)
-							var br = document.createElement("br");
-							var videoPlayer = document.createElement("video");
-							videoPlayer.setAttribute("controls", "");
-							videoPlayer.setAttribute("preload", "auto");
-							videoPlayer.setAttribute("width", "640");
-							videoPlayer.setAttribute("height", "264");
-
-							var videoSource = document.createElement("source");
-							videoSource.setAttribute("src", "/stream/" + video.ID + "/output.m3u8");
-							videoSource.setAttribute("type", "application/x-mpegURL");
-
-							videoPlayer.appendChild(videoSource);
-							listItem.appendChild(br);
-							listItem.appendChild(videoPlayer);
-
-							// Initialize hls.js
-							var hls = new Hls();
-							hls.loadSource("/stream/" + video.ID + "/output.m3u8");
-							hls.attachMedia(videoPlayer);
-							hls.on(Hls.Events.ERROR, function (event, data) {
-								console.error('HLS.js error:', event, data);
-							});
-						}
-					});
-				}
-
-				function getStatusText(video, statusPrefix) {
-					if (video.Status === "Downloading") {
-						return "Download Progress: " + video.DownloadProgress.toFixed(2) + "%";
-					} else if (video.Status === "Processing") {
-						return "Processing Status: " + video.ProcessingStatus;
-					} else if (video.Status === "Ready") {
-						return '<a href="/stream/' + video.ID + '/output.m3u8" target="_blank">' + statusPrefix + '</a>';
-					} else {
-						return "Unknown Status";
-					}
-				}
-			</script>
-		</body>
-
-		</html>
-	`)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		err = ts.Execute(w, videos)
+		if err != nil {
+			log.Println(err.Error())
+			http.Error(w, "Internal Server Error", 500)
+			return
+		}
 	}
-	tmpl.Execute(w, videos)
+
 }
 
 func wsHandler(w http.ResponseWriter, r *http.Request) {

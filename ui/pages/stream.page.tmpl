@@ -1,0 +1,28 @@
+{{template "base" .}}
+{{define "main"}}
+    <h1>Torrent Streamer</h1>
+    <div id="video-container">
+    </div>
+    <script>
+        var videoPlayer = document.createElement("video");
+        videoPlayer.setAttribute("controls", "");
+        videoPlayer.setAttribute("preload", "auto");
+        videoPlayer.setAttribute("width", "640");
+        videoPlayer.setAttribute("height", "264");
+
+        var videoSource = document.createElement("source");
+        videoSource.setAttribute("src", "/stream/{{ . }}/output.m3u8");
+        videoSource.setAttribute("type", "application/x-mpegURL");
+
+        videoPlayer.appendChild(videoSource);
+
+        var hls = new Hls();
+        hls.loadSource("/stream/{{ . }}/output.m3u8");
+        hls.attachMedia(videoPlayer);
+        hls.on(Hls.Events.ERROR, function (event, data) {
+            console.error('HLS.js error:', event, data);
+        });
+
+        document.getElementById("video-container").appendChild(videoPlayer);
+    </script>
+{{end}}

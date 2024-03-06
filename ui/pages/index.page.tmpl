@@ -1,0 +1,128 @@
+{{template "base" .}}
+{{define "main"}}
+    <div class="container">
+        <h1 class="my-4">Torrent Streamer</h1>
+        <form action="/submit" method="post" class="mb-4">
+            <div class="mb-3">
+                <label for="magnetLink" class="form-label">Magnet Link:</label>
+                <input type="text" class="form-control" id="magnetLink" name="magnetLink" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Submit</button>
+        </form>
+
+        <div class="row">
+            <div class="col">
+                <h2>Downloading Videos:</h2>
+                <ul id="downloadingList" class="list-group"></ul>
+            </div>
+            <div class="col">
+                <h2>Processing Videos:</h2>
+                <ul id="processingList" class="list-group"></ul>
+            </div>
+            <div class="col">
+                <h2>Ready Videos:</h2>
+                <ul id="readyList" class="list-group"></ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var oldData = null;
+        var ws = new WebSocket("ws://" + window.location.host + "/ws");
+        ws.onmessage = function (event) {
+            var data = JSON.parse(event.data);
+            if (oldData === event.data) {
+                return
+            }
+            oldData = event.data;
+            updateStatus(data);
+        };
+
+        function updateStatus(data) {
+            console.log(data);
+
+            if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+                console.error("Invalid data format");
+                return;
+            }
+
+            var downloadingVideos = [];
+            var processingVideos = [];
+            var readyVideos = [];
+
+            for (var key in data) {
+                if (data.hasOwnProperty(key)) {
+                    var video = data[key];
+                    if (video.Status === "Downloading") {
+                        downloadingVideos.push(video);
+                    } else if (video.Status === "Processing") {
+                        processingVideos.push(video);
+                    } else if (video.Status === "Ready") {
+                        readyVideos.push(video);
+                    }
+                }
+            }
+
+            updateList("downloadingList", downloadingVideos, "Download Progress: ");
+            updateList("processingList", processingVideos, "Processing Status: ");
+            updateList("readyList", readyVideos, "Watch Stream");
+        }
+
+        function updateList(listId, videos, statusPrefix) {
+            var videoList = document.getElementById(listId);
+            if (listId != "readyList") {
+                videoList.innerHTML = "";
+            }
+
+            videos.forEach(function (video) {
+                var listItem = document.getElementById(video.ID);
+                if (listItem) {
+                    return
+                }
+
+                var listItem = document.createElement("li");
+                listItem.innerHTML = video.Name + " - " + getStatusText(video, statusPrefix);
+                videoList.appendChild(listItem);
+
+                if (statusPrefix === "Watch Stream") {
+                    // For ready videos, add an hls.js player
+                    listItem.setAttribute("id", video.ID)
+                    var br = document.createElement("br");
+                    var videoPlayer = document.createElement("video");
+                    videoPlayer.setAttribute("controls", "");
+                    videoPlayer.setAttribute("preload", "auto");
+                    videoPlayer.setAttribute("width", "480");
+                    videoPlayer.setAttribute("height", "205");
+
+                    var videoSource = document.createElement("source");
+                    videoSource.setAttribute("src", "/stream/" + video.ID + "/output.m3u8");
+                    videoSource.setAttribute("type", "application/x-mpegURL");
+
+                    videoPlayer.appendChild(videoSource);
+                    listItem.appendChild(br);
+                    listItem.appendChild(videoPlayer);
+
+                    // Initialize hls.js
+                    var hls = new Hls();
+                    hls.loadSource("/stream/" + video.ID + "/output.m3u8");
+                    hls.attachMedia(videoPlayer);
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        console.error('HLS.js error:', event, data);
+                    });
+                }
+            });
+        }
+
+        function getStatusText(video, statusPrefix) {
+            if (video.Status === "Downloading") {
+                return "Download Progress: " + video.DownloadProgress.toFixed(2) + "%";
+            } else if (video.Status === "Processing") {
+                return "Processing Status: " + video.ProcessingStatus;
+            } else if (video.Status === "Ready") {
+                return '<a href=?stream_id=' + video.ID + ' target="_blank">' + statusPrefix + '</a>';
+            } else {
+                return "Unknown Status";
+            }
+        }
+    </script>
+{{end}}
