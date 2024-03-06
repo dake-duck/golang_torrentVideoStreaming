@@ -166,15 +166,23 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 
 				function updateList(listId, videos, statusPrefix) {
 					var videoList = document.getElementById(listId);
-					videoList.innerHTML = "";
+					if (listId != "readyList") {
+						videoList.innerHTML = "";
+					}
 
 					videos.forEach(function (video) {
+						var listItem = document.getElementById(video.ID);
+						if (listItem) {
+							return
+						}
+						
 						var listItem = document.createElement("li");
 						listItem.innerHTML = video.Name + " - " + getStatusText(video, statusPrefix);
 						videoList.appendChild(listItem);
 
 						if (statusPrefix === "Watch Stream") {
 							// For ready videos, add an hls.js player
+							listItem.setAttribute("id", video.ID)
 							var br = document.createElement("br");
 							var videoPlayer = document.createElement("video");
 							videoPlayer.setAttribute("controls", "");
